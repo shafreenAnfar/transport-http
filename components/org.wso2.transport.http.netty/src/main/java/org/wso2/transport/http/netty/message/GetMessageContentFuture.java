@@ -25,19 +25,19 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * Represents future contents of the message.
  */
-public class MessageFuture {
+public class GetMessageContentFuture {
 
-    private MessageListener messageListener;
+    private GetMessageContentListener getMessageContentListener;
     private HTTPCarbonMessage httpCarbonMessage;
     private ConcurrentLinkedQueue<HttpContent> pendingPayload;
 
-     public MessageFuture(HTTPCarbonMessage httpCarbonMessage) {
+     public GetMessageContentFuture(HTTPCarbonMessage httpCarbonMessage) {
         this.httpCarbonMessage = httpCarbonMessage;
         this.pendingPayload = new ConcurrentLinkedQueue<>();
     }
 
-    public synchronized void setMessageListener(MessageListener messageListener) {
-        this.messageListener = messageListener;
+    public synchronized void setMessageContentListener(GetMessageContentListener getMessageContentListener) {
+        this.getMessageContentListener = getMessageContentListener;
         while (!httpCarbonMessage.isEmpty()) {
             HttpContent httpContent = httpCarbonMessage.getHttpContent();
             notifyMessageListener(httpContent);
@@ -48,12 +48,12 @@ public class MessageFuture {
     }
 
     public synchronized void removeMessageListener() {
-        this.messageListener = null;
+        this.getMessageContentListener = null;
     }
 
     public synchronized void notifyMessageListener(HttpContent httpContent) {
-        if (this.messageListener != null) {
-            this.messageListener.onMessage(httpContent);
+        if (this.getMessageContentListener != null) {
+            this.getMessageContentListener.onMessage(httpContent);
         } else {
             pendingPayload.add(httpContent);
         }

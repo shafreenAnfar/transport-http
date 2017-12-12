@@ -156,7 +156,7 @@ public class TargetChannel {
             this.setRequestWritten(true);
             this.getChannel().write(httpRequest);
 
-            httpCarbonRequest.getHttpContentAsync().setMessageListener(httpContent ->
+            httpCarbonRequest.getHttpContentAsync().setMessageContentListener(httpContent ->
                     this.channel.eventLoop().execute(() -> {
                 if (Util.isLastHttpContent(httpContent)) {
                     this.getChannel().writeAndFlush(httpContent);

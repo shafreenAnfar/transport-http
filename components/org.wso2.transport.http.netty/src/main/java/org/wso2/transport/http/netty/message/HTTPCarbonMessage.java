@@ -39,6 +39,7 @@ import org.wso2.transport.http.netty.sender.channel.BootstrapConfiguration;
 
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -46,15 +47,17 @@ import java.util.stream.Collectors;
 /**
  * HTTP based representation for HTTPCarbonMessage.
  */
-public class HTTPCarbonMessage {
+public class HTTPCarbonMessage implements Subject {
 
     protected HttpMessage httpMessage;
     private EntityCollector blockingEntityCollector;
     private Map<String, Object> properties = new HashMap<>();
 
+    private List<Observer> observers = new LinkedList<>();
+
     private MessagingException messagingException = null;
     private MessageDataSource messageDataSource;
-    private MessageFuture messageFuture;
+    private GetMessageContentFuture messageFuture;
     private final ServerConnectorFuture httpOutboundRespFuture = new HttpWsServerConnectorFuture();
     private final HttpResponseStatusFuture httpOutboundRespStatusFuture = new HttpResponseStatusFuture();
 
@@ -79,11 +82,13 @@ public class HTTPCarbonMessage {
      * @param httpContent chunks of the payload.
      */
     public synchronized void addHttpContent(HttpContent httpContent) {
-        if (this.messageFuture != null) {
-            this.messageFuture.notifyMessageListener(httpContent);
-        } else {
-            this.blockingEntityCollector.addHttpContent(httpContent);
-        }
+//        if (this.messageFuture != null) {
+//            this.messageFuture.notifyMessageListener(httpContent);
+//        } else {
+//            this.blockingEntityCollector.addHttpContent(httpContent);
+//        }
+        this.blockingEntityCollector.addHttpContent(httpContent);
+        this.notifyObservers(blockingEntityCollector);
     }
 
     /**
@@ -95,8 +100,9 @@ public class HTTPCarbonMessage {
         return this.blockingEntityCollector.getHttpContent();
     }
 
-    public synchronized MessageFuture getHttpContentAsync() {
-        this.messageFuture = new MessageFuture(this);
+    public synchronized GetMessageContentFuture getHttpContentAsync() {
+        this.messageFuture = new GetMessageContentFuture(this);
+        this.registerObserver(new AsyncHttpContent(this.messageFuture));
         return this.messageFuture;
     }
 
@@ -130,6 +136,17 @@ public class HTTPCarbonMessage {
     public int getFullMessageLength() {
         return blockingEntityCollector.getFullMessageLength();
     }
+
+    /**
+     * Return the length of entire payload. This is a blocking method.
+     * @return the length.
+     */
+    public GetMessageContentLengthFuture getFullMessageLengthAsync() {
+        GetMessageContentLengthFuture getMessageContentLengthFuture = new GetMessageContentLengthFuture();
+        this.registerObserver(new AsyncHttpContentLength(getMessageContentLengthFuture));
+        return getMessageContentLengthFuture;
+    }
+
 
     @Deprecated
     public boolean isEndOfMsgAdded() {
@@ -368,5 +385,22 @@ public class HTTPCarbonMessage {
 
     public synchronized void removeHttpContentAsyncFuture() {
         this.messageFuture = null;
+    }
+
+    @Override
+    public synchronized void registerObserver(Observer observer) {
+        observers.add(observer);
+    }
+
+    @Override
+    public synchronized void removeObserver(Observer observer) {
+        observers.remove(observer);
+    }
+
+    @Override
+    public synchronized void notifyObservers(EntityCollector entityCollector) {
+        for (Observer observer : observers) {
+            observer.update(entityCollector);
+        }
     }
 }

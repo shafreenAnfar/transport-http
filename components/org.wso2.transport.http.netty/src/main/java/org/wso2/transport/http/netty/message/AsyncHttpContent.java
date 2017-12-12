@@ -18,16 +18,19 @@
 
 package org.wso2.transport.http.netty.message;
 
-import io.netty.handler.codec.http.HttpContent;
-
 /**
- * Get notified when there is a state change in message.
+ * Notifies the future of the getHttpContentAsync function.
  */
-public interface MessageListener {
+public class AsyncHttpContent implements Observer {
 
-    /**
-     * Get notified when there is a state change in HttpCarbonMessage payload
-     * @param httpContent changed content.
-     */
-    void onMessage(HttpContent httpContent);
+    private GetMessageContentFuture messageFuture;
+
+    public AsyncHttpContent(GetMessageContentFuture messageFuture) {
+        this.messageFuture = messageFuture;
+    }
+
+    @Override
+    public void update(EntityCollector entityCollector) {
+        messageFuture.notifyMessageListener(entityCollector.getHttpContent());
+    }
 }

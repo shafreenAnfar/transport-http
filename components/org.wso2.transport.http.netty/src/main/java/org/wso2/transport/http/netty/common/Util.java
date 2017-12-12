@@ -16,6 +16,7 @@
 package org.wso2.transport.http.netty.common;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
@@ -187,8 +188,10 @@ public class Util {
      * @param outboundResMsg Carbon message.
      * @param requestDataHolder Requested data holder.
      */
-    public static void setupTransferEncodingAndContentTypeForResponse(HTTPCarbonMessage outboundResMsg
-            , RequestDataHolder requestDataHolder) {
+    public static SetupChunkingOrLengthFuture setupTransferEncodingAndContentTypeForResponse(
+            HTTPCarbonMessage outboundResMsg, RequestDataHolder requestDataHolder, EventLoopGroup eventExecutors) {
+
+        SetupChunkingOrLengthFuture setupChunkingOrLengthFuture = new SetupChunkingOrLengthFuture();
 
         // 1. Remove Transfer-Encoding and Content-Length as per rfc7230#section-3.3.1
         int statusCode = Util.getIntValue(outboundResMsg, Constants.HTTP_STATUS_CODE, 200);
@@ -199,7 +202,9 @@ public class Util {
             outboundResMsg.removeHeader(Constants.HTTP_TRANSFER_ENCODING);
             outboundResMsg.removeHeader(Constants.HTTP_CONTENT_LENGTH);
             outboundResMsg.removeHeader(Constants.HTTP_CONTENT_TYPE);
-            return;
+
+            setupChunkingOrLengthFuture.notifyChunkingOrLengthListener(outboundResMsg);
+            return setupChunkingOrLengthFuture;
         }
 
         // 2. Check for transfer encoding header is set in the request
@@ -210,27 +215,45 @@ public class Util {
             !Constants.HTTP_TRANSFER_ENCODING_IDENTITY.equalsIgnoreCase(requestTransferEncodingHeader)) {
             outboundResMsg.setHeader(Constants.HTTP_TRANSFER_ENCODING, requestTransferEncodingHeader);
             outboundResMsg.removeHeader(Constants.HTTP_CONTENT_LENGTH);
-            return;
+            setupChunkingOrLengthFuture.notifyChunkingOrLengthListener(outboundResMsg);
+            return setupChunkingOrLengthFuture;
         }
 
         // 3. Check for request Content-Length header
         String requestContentLength = requestDataHolder.getContentLengthHeader();
         if (requestContentLength != null &&
             (outboundResMsg.getHeader(Constants.HTTP_CONTENT_LENGTH) == null)) {
-            int contentLength = outboundResMsg.getFullMessageLength();
-            if (contentLength > 0) {
-                outboundResMsg.setHeader(Constants.HTTP_CONTENT_LENGTH, String.valueOf(contentLength));
-            }
-            outboundResMsg.removeHeader(Constants.HTTP_TRANSFER_ENCODING);
-            return;
+//            int contentLength = outboundResMsg.getFullMessageLength();
+//            if (contentLength > 0) {
+//                outboundResMsg.setHeader(Constants.HTTP_CONTENT_LENGTH, String.valueOf(contentLength));
+//            }
+//            outboundResMsg.removeHeader(Constants.HTTP_TRANSFER_ENCODING);
+
+
+            outboundResMsg.getFullMessageLengthAsync().setContentListener(length -> eventExecutors.execute(() -> {
+                if (length > 0) {
+                    outboundResMsg.setHeader(Constants.HTTP_CONTENT_LENGTH, String.valueOf(length));
+                }
+                outboundResMsg.removeHeader(Constants.HTTP_TRANSFER_ENCODING);
+                setupChunkingOrLengthFuture.notifyChunkingOrLengthListener(outboundResMsg);
+            }));
+            return setupChunkingOrLengthFuture;
         }
 
         // 4. If request doesn't have Transfer-Encoding or Content-Length header look for response properties
         if (outboundResMsg.getHeader(Constants.HTTP_TRANSFER_ENCODING) != null) {
             outboundResMsg.getHeaders().remove(Constants.HTTP_CONTENT_LENGTH);  // remove Content-Length if present
-        } else if (outboundResMsg.getHeader(Constants.HTTP_CONTENT_LENGTH) == null) {
-            int contentLength = outboundResMsg.getFullMessageLength();
-            outboundResMsg.setHeader(Constants.HTTP_CONTENT_LENGTH, String.valueOf(contentLength));
+            setupChunkingOrLengthFuture.notifyChunkingOrLengthListener(outboundResMsg);
+            return setupChunkingOrLengthFuture;
+        } else {
+//            int contentLength = outboundResMsg.getFullMessageLength();
+            outboundResMsg.getFullMessageLengthAsync().setContentListener(length -> {
+                eventExecutors.execute(() -> {
+                    outboundResMsg.setHeader(Constants.HTTP_CONTENT_LENGTH, String.valueOf(length));
+                    setupChunkingOrLengthFuture.notifyChunkingOrLengthListener(outboundResMsg);
+                });
+            });
+            return setupChunkingOrLengthFuture;
         }
     }
 

@@ -22,6 +22,7 @@ package org.wso2.transport.http.netty.contractimpl;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.HttpResponse;
 import org.wso2.transport.http.netty.common.Constants;
 import org.wso2.transport.http.netty.common.Util;
@@ -50,40 +51,46 @@ public class HttpOutboundRespListener implements HttpConnectorListener {
 
     @Override
     public void onMessage(HTTPCarbonMessage httpResponseMessage) {
-        sourceContext.channel().eventLoop().execute(() -> {
+        EventLoopGroup eventExecutors = sourceContext.channel().eventLoop();
+        eventExecutors.execute(() -> {
             boolean keepAlive = isKeepAlive(httpResponseMessage);
 
             if (handlerExecutor != null) {
                 handlerExecutor.executeAtSourceResponseReceiving(httpResponseMessage);
             }
 
-            Util.setupTransferEncodingAndContentTypeForResponse(httpResponseMessage, requestDataHolder);
-            final HttpResponse response = Util.createHttpResponse(httpResponseMessage, keepAlive);
-            sourceContext.write(response);
+            Util.setupTransferEncodingAndContentTypeForResponse(httpResponseMessage, requestDataHolder, eventExecutors)
+                    .setSetupChunkingOrLengthListener(httpCarbonMessage -> {
+                        final HttpResponse response = Util.createHttpResponse(httpResponseMessage, keepAlive);
+                        sourceContext.write(response);
 
-            httpResponseMessage.getHttpContentAsync().setMessageListener(httpContent ->
-                    this.sourceContext.channel().eventLoop().execute(() -> {
-                if (Util.isLastHttpContent(httpContent)) {
-                    ChannelFuture outboundChannelFuture = sourceContext.writeAndFlush(httpContent);
-                    HttpResponseStatusFuture outboundRespStatusFuture =
-                            inboundRequestMsg.getHttpOutboundRespStatusFuture();
-                    outboundChannelFuture.addListener(genericFutureListener -> {
-                        if (genericFutureListener.cause() != null) {
-                            outboundRespStatusFuture.notifyHttpListener(genericFutureListener.cause());
-                        } else {
-                            outboundRespStatusFuture.notifyHttpListener(inboundRequestMsg);
-                        }
+                        httpResponseMessage.getHttpContentAsync().setMessageContentListener(httpContent ->
+                                this.sourceContext.channel().eventLoop().execute(() -> {
+                                    if (Util.isLastHttpContent(httpContent)) {
+                                        ChannelFuture outboundChannelFuture = sourceContext.writeAndFlush(httpContent);
+                                        HttpResponseStatusFuture outboundRespStatusFuture =
+                                                inboundRequestMsg.getHttpOutboundRespStatusFuture();
+                                        outboundChannelFuture.addListener(genericFutureListener -> {
+                                            if (genericFutureListener.cause() != null) {
+                                                outboundRespStatusFuture
+                                                        .notifyHttpListener(genericFutureListener.cause());
+                                            } else {
+                                                outboundRespStatusFuture.notifyHttpListener(inboundRequestMsg);
+                                            }
+                                        });
+                                        if (!keepAlive) {
+                                            outboundChannelFuture.addListener(ChannelFutureListener.CLOSE);
+                                        }
+                                        if (handlerExecutor != null) {
+                                            handlerExecutor.executeAtSourceResponseSending(httpResponseMessage);
+                                        }
+                                    } else {
+                                        sourceContext.write(httpContent);
+                                    }
+                                }));
+
                     });
-                    if (!keepAlive) {
-                        outboundChannelFuture.addListener(ChannelFutureListener.CLOSE);
-                    }
-                    if (handlerExecutor != null) {
-                        handlerExecutor.executeAtSourceResponseSending(httpResponseMessage);
-                    }
-                } else {
-                    sourceContext.write(httpContent);
-                }
-            }));
+
         });
     }
 
