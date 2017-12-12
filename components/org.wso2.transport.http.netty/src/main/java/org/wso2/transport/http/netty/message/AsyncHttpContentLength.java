@@ -35,7 +35,7 @@ public class AsyncHttpContentLength implements Observer {
 
     @Override
     public void update(EntityCollector entityCollector) {
-        HttpContent httpContent = entityCollector.getHttpContent();
+        HttpContent httpContent = entityCollector.peek();
         size += httpContent.content().readableBytes();
         if (httpContent instanceof LastHttpContent) {
             contentLengthFuture.notifyContentLengthListener(size);

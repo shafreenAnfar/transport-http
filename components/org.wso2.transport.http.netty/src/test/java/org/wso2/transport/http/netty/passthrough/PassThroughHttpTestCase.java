@@ -47,7 +47,7 @@ public class PassThroughHttpTestCase {
     private static final String testValue = "Test Message";
     private HttpServer httpServer;
 
-    private URI baseURI = URI.create(String.format("http://%s:%d", "localhost", TestUtil.TEST_DEFAULT_INTERFACE_PORT));
+    private URI baseURI = URI.create(String.format("http://%s:%d", "localhost", 8080));
 
     @BeforeClass
     public void setUp() {

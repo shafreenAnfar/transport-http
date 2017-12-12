@@ -18,6 +18,7 @@
 
 package org.wso2.transport.http.netty.message;
 
+import com.sun.jmx.remote.internal.ArrayQueue;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
@@ -38,10 +39,13 @@ import org.wso2.transport.http.netty.listener.ServerBootstrapConfiguration;
 import org.wso2.transport.http.netty.sender.channel.BootstrapConfiguration;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 
 /**
@@ -141,9 +145,18 @@ public class HTTPCarbonMessage implements Subject {
      * Return the length of entire payload. This is a blocking method.
      * @return the length.
      */
-    public GetMessageContentLengthFuture getFullMessageLengthAsync() {
+    public synchronized GetMessageContentLengthFuture getFullMessageLengthAsync() {
         GetMessageContentLengthFuture getMessageContentLengthFuture = new GetMessageContentLengthFuture();
         this.registerObserver(new AsyncHttpContentLength(getMessageContentLengthFuture));
+
+        BlockingQueue<HttpContent> contentList = new LinkedBlockingQueue<>();
+        while (!blockingEntityCollector.isEmpty()) {
+            contentList.add(blockingEntityCollector.getHttpContent());
+        }
+        while (!contentList.isEmpty()) {
+            blockingEntityCollector.addHttpContent(contentList.poll());
+        }
+
         return getMessageContentLengthFuture;
     }
 
